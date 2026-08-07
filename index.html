@@ -104,14 +104,8 @@
 
 <script type="module">
 /* ============================================================
-   const firebaseConfig = {
-  apiKey: "AIzaSyDS69u9PIHWGObLblZuMA7vP3mn9URThLM",
-  authDomain: "g7-ops-comms.firebaseapp.com",
-  projectId: "g7-ops-comms",
-  storageBucket: "g7-ops-comms.firebasestorage.app",
-  messagingSenderId: "185328313105",
-  appId: "1:185328313105:web:1f24c9464312a3daafa2b0",
-  measurementId: "G-6RQ8FZGTC6"
+   FIREBASE CONFIG — REPLACE THIS BLOCK WITH YOUR OWN PROJECT'S
+   CONFIG FROM THE FIREBASE CONSOLE (Project Settings > Your apps)
    ============================================================ */
 const firebaseConfig = {
   apiKey: "AIzaSyDS69u9PIHWGObLblZuMA7vP3mn9URThLM",
@@ -162,11 +156,15 @@ function showToast(msg, isErr){
 }
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escapeAttr(s){ return escapeHtml(s); }
+async function hashCode(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
 /* ---------------- state ---------------- */
 let state = {
   view: 'landing', masterTab: 'compose', pickRole: 'officer',
-  officer: null, composeSender: 'Ops Desk',
+  officer: null, pendingOfficer: null, composeSender: 'Ops Desk',
   roster: [], messages: [], feedback: [], settings: {passcode:'2580'},
 };
 
@@ -199,6 +197,8 @@ function render(){
   else if(state.view==='masterGate') app.innerHTML = renderMasterGate();
   else if(state.view==='master') app.innerHTML = renderMaster();
   else if(state.view==='officerPick') app.innerHTML = renderOfficerPick();
+  else if(state.view==='officerAuthCreate') app.innerHTML = renderOfficerAuth('create');
+  else if(state.view==='officerAuthEnter') app.innerHTML = renderOfficerAuth('enter');
   else if(state.view==='officer') app.innerHTML = renderOfficer();
   attachHandlers();
 }
@@ -243,7 +243,7 @@ function renderOfficerPick(){
   <div class="gate" style="max-width:400px;">
     <div class="landing-eyebrow">${boardLabel}</div>
     <h2>Who Are You?</h2>
-    <p>${filtered.length ? 'Select your name from the roster.' : 'No one is listed for this role yet — enter your details manually.'}</p>
+    <p>${filtered.length ? 'Select your name from the roster. You\'ll set or enter your own personal passcode next.' : 'No one is listed for this role yet — enter your details manually.'}</p>
     ${filtered.length ? `
       <select id="officerSelect"><option value="">— Select your name —</option>${options}</select>
       <button class="btn block" id="officerPickSubmit">Continue</button>
@@ -258,8 +258,46 @@ function manualFields(){
   return `
     <div class="field" style="text-align:left;margin-top:10px;"><label>Full Name</label><input type="text" id="manualName" placeholder="e.g. Kwame Mensah"></div>
     <div class="field" style="text-align:left;"><label>Site / Post</label><input type="text" id="manualSite" placeholder="e.g. ORF, Logistics Base, HQ"></div>
+    <div class="field" style="text-align:left;"><label>Shift</label>
+      <select id="manualShift">
+        <option value="">— Not set —</option>
+        <option value="Morning">Morning</option>
+        <option value="Afternoon">Afternoon</option>
+        <option value="Evening">Evening</option>
+      </select>
+    </div>
     <button class="btn block" id="manualSubmit" style="margin-top:6px;">Continue</button>
   `;
+}
+
+/* ---------------- personal passcode: create or enter ---------------- */
+function renderOfficerAuth(mode){
+  const off = state.pendingOfficer;
+  if(mode==='create'){
+    return `
+    <div class="gate" style="max-width:340px;">
+      <div class="landing-eyebrow">${escapeHtml(off.name)}</div>
+      <h2>Create Your Passcode</h2>
+      <p>This is the first time you're opening your board. Set a personal passcode — only you will use it to open your messages, so no one else can read them.</p>
+      <input type="password" id="authNew1" placeholder="Choose a passcode" autofocus>
+      <div style="height:10px;"></div>
+      <input type="password" id="authNew2" placeholder="Enter it again to confirm">
+      <button class="btn block" id="authCreateSubmit">Save & Continue</button>
+      <div class="error-text" id="authError"></div>
+      <button class="btn secondary block" data-go="officerPick" data-role="${state.pickRole}">Back</button>
+    </div>`;
+  }
+  return `
+  <div class="gate" style="max-width:340px;">
+    <div class="landing-eyebrow">${escapeHtml(off.name)}</div>
+    <h2>Enter Your Passcode</h2>
+    <p>Enter the personal passcode you set for your board.</p>
+    <input type="password" id="authEnter" placeholder="Your passcode" autofocus>
+    <button class="btn block" id="authEnterSubmit">Unlock</button>
+    <div class="error-text" id="authError"></div>
+    <div class="helptext">Forgot it? Ask your Master to reset it from the Ops Desk roster.</div>
+    <button class="btn secondary block" data-go="officerPick" data-role="${state.pickRole}">Back</button>
+  </div>`;
 }
 
 /* ---------------- master dashboard ---------------- */
@@ -290,6 +328,7 @@ function renderMasterTab(tab){
 
 function composePanel(){
   const sites = [...new Set(state.roster.map(r=>r.site).filter(Boolean))];
+  const shifts = [...new Set(state.roster.map(r=>r.shift).filter(Boolean))];
   const officerOnlyList = state.roster.filter(r=>(r.role||'officer')==='officer');
   const supervisorList = state.roster.filter(r=>(r.role||'officer')==='supervisor');
   return `
@@ -307,6 +346,7 @@ function composePanel(){
         <select id="msgAudience">
           <option value="all">All Officers</option>
           ${sites.map(s=>`<option value="site:${escapeAttr(s)}">Site: ${escapeHtml(s)}</option>`).join('')}
+          ${shifts.map(s=>`<option value="shift:${escapeAttr(s)}">Shift: ${escapeHtml(s)}</option>`).join('')}
           ${officerOnlyList.length ? `<optgroup label="Individual Officers">${officerOnlyList.map(r=>`<option value="officer:${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('')}</optgroup>` : ''}
           ${supervisorList.length ? `<optgroup label="Individual Supervisors">${supervisorList.map(r=>`<option value="officer:${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('')}</optgroup>` : ''}
         </select>
@@ -316,37 +356,61 @@ function composePanel(){
     <button class="btn" id="sendMsgBtn">Send Message</button>
   </div>`;
 }
-function renderCompose(){ return composePanel() + renderLog(false, 5); }
+function renderCompose(){ return composePanel() + bulkShiftPanel() + renderLog(false, 5); }
+
+function bulkShiftPanel(){
+  return `
+  <div class="panel">
+    <h4>Bulk Shift Assignments</h4>
+    <div class="helptext">Send each officer their own shift details in one go. Upload an Excel/CSV with two columns: Name, Shift Details. Each row is matched to a roster name and sent as a private Shift Information message to that person only.</div>
+    <div class="file-drop" id="bulkShiftDrop" style="margin-top:10px;">Click to upload Excel (.xlsx/.csv) — columns: Name, Shift Details</div>
+    <input type="file" id="bulkShiftInput" accept=".xlsx,.xls,.csv" style="display:none;">
+    <div id="bulkShiftResult"></div>
+  </div>`;
+}
 
 function renderRoster(){
   const rows = state.roster.map(r=>{
     const role = r.role||'officer';
+    const shift = r.shift||'';
+    const hasCode = !!r.passcode;
     return `<tr>
       <td>${escapeHtml(r.name)}</td>
       <td>${escapeHtml(r.site||'—')}</td>
+      <td><select class="small" data-shift-switch="${r.id}">
+        <option value="" ${shift===''?'selected':''}>—</option>
+        <option value="Morning" ${shift==='Morning'?'selected':''}>Morning</option>
+        <option value="Afternoon" ${shift==='Afternoon'?'selected':''}>Afternoon</option>
+        <option value="Evening" ${shift==='Evening'?'selected':''}>Evening</option>
+      </select></td>
       <td><select class="small" data-role-switch="${r.id}">
         <option value="officer" ${role==='officer'?'selected':''}>Officer</option>
         <option value="supervisor" ${role==='supervisor'?'selected':''}>Supervisor</option>
       </select></td>
+      <td>
+        ${hasCode
+          ? `<span class="helptext" style="margin:0;color:var(--green);">Set</span> <button class="rm-btn" style="color:var(--amber);" data-reset-code="${r.id}">Reset</button>`
+          : `<span class="helptext" style="margin:0;">Not set</span>`}
+      </td>
       <td><button class="rm-btn" data-rm-roster="${r.id}">Remove</button></td>
     </tr>`;
   }).join('');
   return `
   <div class="panel">
     <h4>Upload Roster</h4>
-    <div class="file-drop" id="fileDrop">Click to upload Excel (.xlsx/.csv) — columns: Name, Site, Role (optional)</div>
+    <div class="file-drop" id="fileDrop">Click to upload Excel (.xlsx/.csv) — columns: Name, Site, Role, Shift</div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
-    <div class="helptext">For Word documents: open the file, copy the officer list, and paste it below (one person per line, format "Name, Site, Role"). Leave Role off, or write "Supervisor" for supervisors — everyone else defaults to Officer.</div>
+    <div class="helptext">For Word documents: open the file, copy the officer list, and paste it below (one person per line, format "Name, Site, Role, Shift"). Leave Role off for Officer, or write "Supervisor". Shift can be Morning, Afternoon, or Evening — leave it off if not assigned yet.</div>
     <div class="field" style="margin-top:14px;"><label>Or Paste Names</label>
-      <textarea id="pasteRoster" placeholder="Kwame Mensah, ORF&#10;Ama Owusu, Logistics Base, Supervisor&#10;Yaw Boateng, Head Office"></textarea>
+      <textarea id="pasteRoster" placeholder="Kwame Mensah, ORF, , Morning&#10;Ama Owusu, Logistics Base, Supervisor, Afternoon&#10;Yaw Boateng, Head Office"></textarea>
     </div>
     <button class="btn" id="pasteRosterBtn">Add From Text</button>
   </div>
   <div class="panel">
     <h4>Current Roster</h4>
-    ${state.roster.length ? `<table><thead><tr><th>Name</th><th>Site</th><th>Role</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No one added yet.</div>'}
+    ${state.roster.length ? `<table><thead><tr><th>Name</th><th>Site</th><th>Shift</th><th>Role</th><th>Passcode</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No one added yet.</div>'}
     ${state.roster.length ? '<button class="btn secondary" style="margin-top:14px;" id="clearRosterBtn">Clear Entire Roster</button>' : ''}
-    <div class="helptext">Use the Role dropdown to promote anyone to Supervisor so they can send messages from the Supervisor Board.</div>
+    <div class="helptext">Use the Role dropdown to promote anyone to Supervisor. Each person sets their own passcode the first time they open their board — use Reset if someone forgets theirs.</div>
   </div>`;
 }
 
@@ -387,6 +451,7 @@ function renderSettings(){
 function audienceLabel(a){
   if(a==='all') return 'To: All Officers';
   if(a.startsWith('site:')) return 'To: Site — ' + a.slice(5);
+  if(a.startsWith('shift:')) return 'To: Shift — ' + a.slice(6);
   if(a.startsWith('officer:')){
     const off = state.roster.find(r=>r.id===a.slice(8));
     return 'To: ' + (off ? off.name : 'Officer (removed)');
@@ -401,6 +466,7 @@ function renderOfficer(){
   const mine = state.messages.filter(m=>{
     if(m.audience==='all') return true;
     if(m.audience==='site:'+off.site) return true;
+    if(m.audience==='shift:'+off.shift) return true;
     if(m.audience==='officer:'+off.id) return true;
     return false;
   }).sort((a,b)=>b.ts-a.ts);
@@ -410,7 +476,7 @@ function renderOfficer(){
 
   return `
   <div class="topbar">
-    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${isSup?'Supervisor Board':'Duty Board'}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}</div></div></div>
+    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${isSup?'Supervisor Board':'Duty Board'}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}${off.shift? ' · '+escapeHtml(off.shift)+' Shift':''}</div></div></div>
     <div class="who"><button class="exit-btn" data-go="landing">Exit</button></div>
   </div>
   ${isSup ? composePanel() : ''}
@@ -448,6 +514,7 @@ function attachHandlers(){
       state.view = el.getAttribute('data-go');
       const r = el.getAttribute('data-role');
       if(r) state.pickRole = r;
+      if(state.view === 'landing'){ state.officer = null; state.pendingOfficer = null; }
       render();
     };
   });
@@ -472,8 +539,10 @@ function attachHandlers(){
     officerPickBtn.onclick = ()=>{
       const id = document.getElementById('officerSelect').value;
       if(!id){ document.getElementById('pickError').textContent = 'Please select your name.'; return; }
-      state.officer = state.roster.find(r=>r.id===id);
-      state.view='officer'; render();
+      const rec = state.roster.find(r=>r.id===id);
+      state.pendingOfficer = rec;
+      state.view = rec.passcode ? 'officerAuthEnter' : 'officerAuthCreate';
+      render();
     };
   }
   const manualToggle = document.getElementById('manualToggle');
@@ -488,18 +557,58 @@ function attachHandlers(){
     manualSubmit.onclick = async ()=>{
       const name = document.getElementById('manualName').value.trim();
       const site = document.getElementById('manualSite').value.trim();
+      const shift = document.getElementById('manualShift') ? document.getElementById('manualShift').value : '';
       if(!name){ document.getElementById('pickError').textContent = 'Please enter your name.'; return; }
       let off = state.roster.find(r=>r.name.toLowerCase()===name.toLowerCase());
       try{
         if(!off){
           const role = state.pickRole || 'officer';
-          const ref = await addDoc(collection(db,'roster'), {name, site, role});
-          off = {id:ref.id, name, site, role};
+          const ref = await addDoc(collection(db,'roster'), {name, site, shift, role});
+          off = {id:ref.id, name, site, shift, role};
         }
-        state.officer = off;
-        state.view='officer'; render();
+        state.pendingOfficer = off;
+        state.view = off.passcode ? 'officerAuthEnter' : 'officerAuthCreate';
+        render();
       }catch(e){ showToast('Could not join: '+e.message, true); }
     };
+  }
+
+  const authCreateSubmit = document.getElementById('authCreateSubmit');
+  if(authCreateSubmit){
+    authCreateSubmit.onclick = async ()=>{
+      const p1 = document.getElementById('authNew1').value;
+      const p2 = document.getElementById('authNew2').value;
+      if(!p1 || p1.length < 4){ document.getElementById('authError').textContent = 'Use at least 4 characters.'; return; }
+      if(p1 !== p2){ document.getElementById('authError').textContent = 'Passcodes do not match.'; return; }
+      try{
+        const hash = await hashCode(p1);
+        const off = state.pendingOfficer;
+        await setDoc(doc(db,'roster', off.id), {passcode:hash}, {merge:true});
+        state.officer = {...off, passcode:hash};
+        state.pendingOfficer = null;
+        state.view='officer'; render();
+      }catch(e){ document.getElementById('authError').textContent = 'Could not save: '+e.message; }
+    };
+  }
+  const authEnterSubmit = document.getElementById('authEnterSubmit');
+  if(authEnterSubmit){
+    const doAuth = async ()=>{
+      const val = document.getElementById('authEnter').value;
+      const off = state.pendingOfficer;
+      try{
+        const hash = await hashCode(val);
+        if(hash === off.passcode){
+          state.officer = off;
+          state.pendingOfficer = null;
+          state.view='officer'; render();
+        } else {
+          document.getElementById('authError').textContent = 'Incorrect passcode.';
+        }
+      }catch(e){ document.getElementById('authError').textContent = 'Error: '+e.message; }
+    };
+    authEnterSubmit.onclick = doAuth;
+    const enterInput = document.getElementById('authEnter');
+    if(enterInput) enterInput.addEventListener('keydown', e=>{ if(e.key==='Enter') doAuth(); });
   }
 
   document.querySelectorAll('.tab[data-tab]').forEach(el=>{
@@ -518,6 +627,51 @@ function attachHandlers(){
         showToast('Message sent');
         document.getElementById('msgText').value='';
       }catch(e){ showToast('Failed to send: '+e.message, true); }
+    };
+  }
+
+  const bulkShiftDrop = document.getElementById('bulkShiftDrop');
+  const bulkShiftInput = document.getElementById('bulkShiftInput');
+  if(bulkShiftDrop){
+    bulkShiftDrop.onclick = ()=> bulkShiftInput.click();
+    bulkShiftInput.onchange = async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const resultBox = document.getElementById('bulkShiftResult');
+      resultBox.innerHTML = '<div class="helptext">Sending…</div>';
+      try{
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data);
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1});
+        let sent = 0;
+        const unmatched = [];
+        for(let idx=0; idx<rows.length; idx++){
+          const row = rows[idx];
+          if(!row || !row.length) continue;
+          const name = String(row[0]||'').trim();
+          if(idx===0 && /name/i.test(name)) continue;
+          if(!name) continue;
+          const shiftText = row[1] ? String(row[1]).trim() : '';
+          if(!shiftText) continue;
+          const match = state.roster.find(r=>r.name.toLowerCase()===name.toLowerCase());
+          if(!match){ unmatched.push(name); continue; }
+          await addDoc(collection(db,'messages'), {
+            type:'shift', audience:'officer:'+match.id, text:shiftText,
+            ts:Date.now(), sender: state.composeSender || 'Ops Desk'
+          });
+          sent++;
+        }
+        let html = `<div class="helptext" style="margin-top:10px;"><strong style="color:var(--green);">${sent} shift message(s) sent.</strong></div>`;
+        if(unmatched.length){
+          html += `<div class="helptext" style="color:var(--red);">Not matched to a roster name (check spelling matches exactly): ${unmatched.map(escapeHtml).join(', ')}</div>`;
+        }
+        resultBox.innerHTML = html;
+        showToast(sent + ' shift message(s) sent');
+      }catch(err){
+        document.getElementById('bulkShiftResult').innerHTML = '';
+        showToast('Could not read file: '+err.message, true);
+      }
     };
   }
 
@@ -544,8 +698,10 @@ function attachHandlers(){
           const site = row[1] ? String(row[1]).trim() : '';
           const roleRaw = row[2] ? String(row[2]).trim().toLowerCase() : '';
           const role = roleRaw.startsWith('sup') ? 'supervisor' : 'officer';
+          const shiftRaw = row[3] ? String(row[3]).trim().toLowerCase() : '';
+          const shift = shiftRaw.startsWith('morn') ? 'Morning' : shiftRaw.startsWith('after') ? 'Afternoon' : shiftRaw.startsWith('even') ? 'Evening' : '';
           if(state.roster.some(r=>r.name.toLowerCase()===name.toLowerCase())) continue;
-          await addDoc(collection(db,'roster'), {name, site, role});
+          await addDoc(collection(db,'roster'), {name, site, role, shift});
           added++;
         }
         showToast(added + ' officer(s) added');
@@ -565,9 +721,11 @@ function attachHandlers(){
           const name = parts[0];
           const site = parts[1] || '';
           const role = (parts[2]||'').toLowerCase().startsWith('sup') ? 'supervisor' : 'officer';
+          const shiftRaw = (parts[3]||'').toLowerCase();
+          const shift = shiftRaw.startsWith('morn') ? 'Morning' : shiftRaw.startsWith('after') ? 'Afternoon' : shiftRaw.startsWith('even') ? 'Evening' : '';
           if(!name) continue;
           if(state.roster.some(r=>r.name.toLowerCase()===name.toLowerCase())) continue;
-          await addDoc(collection(db,'roster'), {name, site, role});
+          await addDoc(collection(db,'roster'), {name, site, role, shift});
           added++;
         }
         showToast(added + ' officer(s) added');
@@ -586,9 +744,30 @@ function attachHandlers(){
       const id = el.getAttribute('data-role-switch');
       const r = state.roster.find(x=>x.id===id);
       try{
-        await setDoc(doc(db,'roster', id), {name:r.name, site:r.site||'', role: el.value});
+        await setDoc(doc(db,'roster', id), {role: el.value}, {merge:true});
         showToast(r.name + ' set as ' + (el.value==='supervisor'?'Supervisor':'Officer'));
       }catch(e){ showToast('Could not update role: '+e.message, true); }
+    };
+  });
+  document.querySelectorAll('[data-shift-switch]').forEach(el=>{
+    el.onchange = async ()=>{
+      const id = el.getAttribute('data-shift-switch');
+      const r = state.roster.find(x=>x.id===id);
+      try{
+        await setDoc(doc(db,'roster', id), {shift: el.value}, {merge:true});
+        showToast(r.name + ' set to ' + (el.value || 'no shift'));
+      }catch(e){ showToast('Could not update shift: '+e.message, true); }
+    };
+  });
+  document.querySelectorAll('[data-reset-code]').forEach(el=>{
+    el.onclick = async ()=>{
+      const id = el.getAttribute('data-reset-code');
+      const r = state.roster.find(x=>x.id===id);
+      if(!confirm(`Reset ${r.name}'s passcode? They'll be asked to set a new one next time they open their board.`)) return;
+      try{
+        await setDoc(doc(db,'roster', id), {passcode:''}, {merge:true});
+        showToast(r.name + '\'s passcode was reset');
+      }catch(e){ showToast('Could not reset: '+e.message, true); }
     };
   });
   const clearRosterBtn = document.getElementById('clearRosterBtn');
