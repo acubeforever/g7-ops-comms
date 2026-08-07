@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>G7 Ops Comms</title>
+<meta name="theme-color" content="#151a20">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#151a20; --panel:#1e252d; --panel-2:#252e38; --line:#333e4a;
+    --amber:#f0a13a; --amber-dim:#8a6023; --blue:#5b9bd5; --red:#e0614f; --green:#4caf6d;
+    --text:#e8e6df; --text-dim:#8b96a3;
+    --mono: 'JetBrains Mono', monospace; --display: 'Barlow Condensed', sans-serif; --body: 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{background:radial-gradient(circle at 15% 0%, rgba(240,161,58,0.05), transparent 40%), var(--bg);color:var(--text);font-family:var(--body);min-height:100vh;font-size:16px;}
+  ::selection{background:var(--amber);color:#151a20;}
+  .app{max-width:960px;margin:0 auto;padding:20px 16px 70px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10;padding-top:6px;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2.4s infinite;flex-shrink:0;}
+  .brand-dot.offline{background:var(--red);box-shadow:0 0 8px var(--red);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .brand-text{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:0.03em;text-transform:uppercase;}
+  .brand-sub{font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;}
+  .who{font-family:var(--mono);font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:10px;}
+  .exit-btn{background:none;border:1px solid var(--line);color:var(--text-dim);padding:9px 14px;min-height:40px;border-radius:6px;font-family:var(--mono);font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:.05em;}
+  .exit-btn:active{border-color:var(--red);color:var(--red);transform:scale(0.97);}
+  .landing{padding-top:6vh;text-align:center;}
+  .landing-eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.15em;color:var(--amber);text-transform:uppercase;margin-bottom:10px;}
+  .landing h1{font-family:var(--display);font-weight:700;font-size:clamp(36px,7vw,58px);text-transform:uppercase;letter-spacing:.01em;margin:0 0 8px;line-height:1;}
+  .landing p{color:var(--text-dim);max-width:480px;margin:0 auto 36px;font-size:15px;line-height:1.6;}
+  .role-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;max-width:820px;margin:0 auto;}
+  @media(max-width:760px){.role-grid{grid-template-columns:1fr;gap:12px;}}
+  .role-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 20px;cursor:pointer;text-align:left;transition:border-color .15s, transform .1s;min-height:44px;display:flex;flex-direction:column;justify-content:center;}
+  .role-card:active{border-color:var(--amber);transform:scale(0.98);}
+  @media(hover:hover){.role-card:hover{border-color:var(--amber);transform:translateY(-2px);}}
+  .role-card .tag{font-family:var(--mono);font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.1em;}
+  .role-card h3{font-family:var(--display);font-size:23px;text-transform:uppercase;margin:6px 0 6px;letter-spacing:.02em;}
+  .role-card p{color:var(--text-dim);font-size:13.5px;margin:0;line-height:1.5;}
+  .gate{max-width:340px;margin:10vh auto 0;text-align:center;}
+  .gate h2{font-family:var(--display);text-transform:uppercase;font-size:26px;margin-bottom:6px;}
+  .gate p{color:var(--text-dim);font-size:13px;margin-bottom:22px;}
+  input[type=password],input[type=text],select,textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:13px 14px;min-height:48px;border-radius:7px;font-family:var(--body);font-size:16px;outline:none;}
+  input:focus,select:focus,textarea:focus{border-color:var(--amber);}
+  select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b96a3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:18px;padding-right:38px;}
+  .btn{background:var(--amber);color:#1a1408;border:none;font-family:var(--display);font-weight:600;font-size:16px;text-transform:uppercase;letter-spacing:.04em;padding:13px 22px;min-height:48px;border-radius:7px;cursor:pointer;transition:transform .08s, background .15s;}
+  .btn:active{transform:scale(0.97);background:#ffb654;}
+  @media(hover:hover){.btn:hover{background:#ffb654;}}
+  .btn.secondary{background:none;border:1px solid var(--line);color:var(--text);}
+  .btn.secondary:active{border-color:var(--text-dim);transform:scale(0.97);}
+  .btn.block{width:100%;margin-top:14px;}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .error-text{color:var(--red);font-size:12px;font-family:var(--mono);margin-top:10px;min-height:16px;}
+  .tabs{display:flex;gap:2px;margin-bottom:20px;border-bottom:1px solid var(--line);flex-wrap:wrap;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tab{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);background:none;border:none;padding:12px 14px;min-height:44px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+  .tab.active{color:var(--amber);border-bottom-color:var(--amber);}
+  .tab:active{background:var(--panel-2);}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px;}
+  .panel h4{font-family:var(--display);text-transform:uppercase;letter-spacing:.03em;font-size:16px;margin:0 0 14px;color:var(--text);}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-family:var(--mono);font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:560px){.row2{grid-template-columns:1fr;}}
+  textarea{resize:vertical;min-height:96px;font-family:var(--body);}
+  .card{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:7px;padding:13px 14px;margin-bottom:10px;}
+  .card.type-shift{border-left-color:var(--amber);}
+  .card.type-urgent{border-left-color:var(--red);}
+  .card.type-general{border-left-color:var(--blue);}
+  .card-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;}
+  .card-tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);}
+  .card-time{font-family:var(--mono);font-size:10px;color:var(--text-dim);white-space:nowrap;}
+  .card-body{font-size:14.5px;line-height:1.55;}
+  .card-audience{font-family:var(--mono);font-size:10px;color:var(--amber);margin-top:8px;text-transform:uppercase;}
+  .empty{color:var(--text-dim);font-size:13px;font-style:italic;padding:16px 0;text-align:center;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--text-dim);padding:8px;border-bottom:1px solid var(--line);letter-spacing:.05em;}
+  td{padding:10px 8px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  .rm-btn{background:none;border:none;color:var(--red);cursor:pointer;font-family:var(--mono);font-size:11px;padding:8px;min-height:36px;}
+  .helptext{color:var(--text-dim);font-size:12.5px;line-height:1.6;margin-top:8px;}
+  .file-drop{border:1.5px dashed var(--line);border-radius:8px;padding:20px 16px;text-align:center;cursor:pointer;font-family:var(--mono);font-size:12.5px;color:var(--text-dim);min-height:44px;display:flex;align-items:center;justify-content:center;}
+  .file-drop:active{border-color:var(--amber);color:var(--amber);}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--green);color:#0f1a12;font-family:var(--mono);font-size:13px;padding:12px 20px;border-radius:7px;opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;z-index:50;box-shadow:0 6px 18px rgba(0,0,0,0.35);max-width:90vw;text-align:center;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+  .toast.err{background:var(--red);color:#1c0a08;}
+  select.small{width:auto;padding:9px 10px;min-height:40px;font-size:12.5px;}
+  .setup-warning{max-width:480px;margin:10vh auto;background:var(--panel);border:1px solid var(--red);border-radius:10px;padding:26px;text-align:center;}
+  .setup-warning h2{font-family:var(--display);text-transform:uppercase;color:var(--red);margin-top:0;}
+  .setup-warning code{background:var(--panel-2);padding:2px 6px;border-radius:3px;font-family:var(--mono);font-size:12px;}
+  .connbar{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--text-dim);justify-content:center;margin-bottom:16px;}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* ============================================================
+   const firebaseConfig = {
+  apiKey: "AIzaSyDS69u9PIHWGObLblZuMA7vP3mn9URThLM",
+  authDomain: "g7-ops-comms.firebaseapp.com",
+  projectId: "g7-ops-comms",
+  storageBucket: "g7-ops-comms.firebasestorage.app",
+  messagingSenderId: "185328313105",
+  appId: "1:185328313105:web:1f24c9464312a3daafa2b0",
+  measurementId: "G-6RQ8FZGTC6"
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: ""AIzaSyDS69u9PIHWGObLblZuMA7vP3mn9URThLM",",
+  authDomain: "g7-ops-comms.firebaseapp.com",
+  projectId: "g7-ops-comms",
+  storageBucket: "g7-ops-comms.firebasestorage.app",
+  messagingSenderId: "185328313105",
+  appId: "1:185328313105:web:1f24c9464312a3daafa2b0"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, doc, setDoc, addDoc, deleteDoc,
+  onSnapshot, query, orderBy
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+let db = null;
+let firebaseReady = false;
+try{
+  if(firebaseConfig.apiKey !== "REPLACE_ME"){
+    const fbApp = initializeApp(firebaseConfig);
+    db = getFirestore(fbApp);
+    firebaseReady = true;
+  }
+}catch(e){ console.error("Firebase init failed", e); }
+
+if(!firebaseReady){
+  document.getElementById('app').innerHTML = `
+    <div class="setup-warning">
+      <h2>Setup Needed</h2>
+      <p>This app needs a Firebase project connected before it can run. Open <code>index.html</code>, find the <code>firebaseConfig</code> block near the top of the script, and paste in your project's config values from the Firebase console.</p>
+      <p>See the setup guide that came with this app for exact steps.</p>
+    </div>`;
+  throw new Error("Firebase not configured");
+}
+
+/* ---------------- helpers ---------------- */
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtTime(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+function showToast(msg, isErr){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s); }
+
+/* ---------------- state ---------------- */
+let state = {
+  view: 'landing', masterTab: 'compose', pickRole: 'officer',
+  officer: null, composeSender: 'Ops Desk',
+  roster: [], messages: [], feedback: [], settings: {passcode:'2580'},
+};
+
+/* ---------------- live Firestore listeners ---------------- */
+onSnapshot(collection(db, 'roster'), snap=>{
+  state.roster = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  render();
+}, err=>showToast('Roster sync error: '+err.message, true));
+
+onSnapshot(query(collection(db,'messages'), orderBy('ts','desc')), snap=>{
+  state.messages = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  render();
+}, err=>showToast('Message sync error: '+err.message, true));
+
+onSnapshot(query(collection(db,'feedback'), orderBy('ts','desc')), snap=>{
+  state.feedback = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  render();
+}, err=>showToast('Feedback sync error: '+err.message, true));
+
+onSnapshot(doc(db,'settings','main'), d=>{
+  if(d.exists()) state.settings = d.data();
+  else setDoc(doc(db,'settings','main'), {passcode:'2580'});
+  render();
+}, err=>showToast('Settings sync error: '+err.message, true));
+
+/* ---------------- render root ---------------- */
+function render(){
+  const app = document.getElementById('app');
+  if(state.view==='landing') app.innerHTML = renderLanding();
+  else if(state.view==='masterGate') app.innerHTML = renderMasterGate();
+  else if(state.view==='master') app.innerHTML = renderMaster();
+  else if(state.view==='officerPick') app.innerHTML = renderOfficerPick();
+  else if(state.view==='officer') app.innerHTML = renderOfficer();
+  attachHandlers();
+}
+
+/* ---------------- landing ---------------- */
+function renderLanding(){
+  return `
+  <div class="landing">
+    <div class="landing-eyebrow">G7 Security Systems &mdash; Field Comms</div>
+    <h1>Ops Comms</h1>
+    <p>Shift briefings, general notices and urgent messages, straight from the ops desk to every officer &mdash; and feedback straight back.</p>
+    <div class="role-grid">
+      <div class="role-card" data-go="masterGate"><div class="tag">Master</div><h3>Ops Desk</h3><p>Send messages, manage the roster, read feedback from officers.</p></div>
+      <div class="role-card" data-go="officerPick" data-role="supervisor"><div class="tag">Supervisor</div><h3>Supervisor Board</h3><p>Send messages to your team and view messages and feedback.</p></div>
+      <div class="role-card" data-go="officerPick" data-role="officer"><div class="tag">Officer</div><h3>Duty Board</h3><p>Read your messages and send feedback to the ops desk.</p></div>
+    </div>
+    <p style="margin-top:28px;font-size:12.5px;">First time setting this up? Start with <strong style="color:var(--amber);">Ops Desk</strong> to add your team and change the passcode.</p>
+  </div>`;
+}
+
+/* ---------------- master gate ---------------- */
+function renderMasterGate(){
+  return `
+  <div class="gate">
+    <div class="landing-eyebrow">Ops Desk</div>
+    <h2>Enter Passcode</h2>
+    <p>Master access only.</p>
+    <input type="password" id="passcodeInput" placeholder="Passcode" autofocus>
+    <button class="btn block" id="passcodeSubmit">Unlock</button>
+    <div class="error-text" id="gateError"></div>
+    <button class="btn secondary block" data-go="landing">Back</button>
+  </div>`;
+}
+
+/* ---------------- officer/supervisor pick ---------------- */
+function renderOfficerPick(){
+  const role = state.pickRole || 'officer';
+  const boardLabel = role==='supervisor' ? 'Supervisor Board' : 'Duty Board';
+  const filtered = state.roster.filter(r => (r.role||'officer') === role);
+  const options = filtered.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('');
+  return `
+  <div class="gate" style="max-width:400px;">
+    <div class="landing-eyebrow">${boardLabel}</div>
+    <h2>Who Are You?</h2>
+    <p>${filtered.length ? 'Select your name from the roster.' : 'No one is listed for this role yet — enter your details manually.'}</p>
+    ${filtered.length ? `
+      <select id="officerSelect"><option value="">— Select your name —</option>${options}</select>
+      <button class="btn block" id="officerPickSubmit">Continue</button>
+      <div class="helptext">Not on the list? <span style="color:var(--amber);cursor:pointer;" id="manualToggle">Enter your details manually</span></div>
+      <div id="manualBlock" style="display:none;margin-top:14px;">${manualFields()}</div>
+    ` : manualFields(true)}
+    <div class="error-text" id="pickError"></div>
+    <button class="btn secondary block" data-go="landing">Back</button>
+  </div>`;
+}
+function manualFields(){
+  return `
+    <div class="field" style="text-align:left;margin-top:10px;"><label>Full Name</label><input type="text" id="manualName" placeholder="e.g. Kwame Mensah"></div>
+    <div class="field" style="text-align:left;"><label>Site / Post</label><input type="text" id="manualSite" placeholder="e.g. ORF, Logistics Base, HQ"></div>
+    <button class="btn block" id="manualSubmit" style="margin-top:6px;">Continue</button>
+  `;
+}
+
+/* ---------------- master dashboard ---------------- */
+function renderMaster(){
+  const tab = state.masterTab;
+  return `
+  <div class="topbar">
+    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">Ops Desk</div><div class="brand-sub">G7 Security Systems</div></div></div>
+    <div class="who"><span>MASTER ACCESS</span><button class="exit-btn" data-go="landing">Exit</button></div>
+  </div>
+  <div class="tabs">
+    <button class="tab ${tab==='compose'?'active':''}" data-tab="compose">Compose</button>
+    <button class="tab ${tab==='roster'?'active':''}" data-tab="roster">Roster (${state.roster.length})</button>
+    <button class="tab ${tab==='feedback'?'active':''}" data-tab="feedback">Feedback (${state.feedback.length})</button>
+    <button class="tab ${tab==='log'?'active':''}" data-tab="log">Message Log</button>
+    <button class="tab ${tab==='settings'?'active':''}" data-tab="settings">Settings</button>
+  </div>
+  <div id="tabContent">${renderMasterTab(tab)}</div>`;
+}
+function renderMasterTab(tab){
+  if(tab==='compose') return renderCompose();
+  if(tab==='roster') return renderRoster();
+  if(tab==='feedback') return renderFeedback();
+  if(tab==='log') return renderLog(true);
+  if(tab==='settings') return renderSettings();
+  return '';
+}
+
+function composePanel(){
+  const sites = [...new Set(state.roster.map(r=>r.site).filter(Boolean))];
+  const officerOnlyList = state.roster.filter(r=>(r.role||'officer')==='officer');
+  const supervisorList = state.roster.filter(r=>(r.role||'officer')==='supervisor');
+  return `
+  <div class="panel">
+    <h4>New Message</h4>
+    <div class="row2">
+      <div class="field"><label>Type</label>
+        <select id="msgType">
+          <option value="shift">Shift Information</option>
+          <option value="general">General Message</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="field"><label>Audience</label>
+        <select id="msgAudience">
+          <option value="all">All Officers</option>
+          ${sites.map(s=>`<option value="site:${escapeAttr(s)}">Site: ${escapeHtml(s)}</option>`).join('')}
+          ${officerOnlyList.length ? `<optgroup label="Individual Officers">${officerOnlyList.map(r=>`<option value="officer:${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('')}</optgroup>` : ''}
+          ${supervisorList.length ? `<optgroup label="Individual Supervisors">${supervisorList.map(r=>`<option value="officer:${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('')}</optgroup>` : ''}
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Message</label><textarea id="msgText" placeholder="Type your message to officers..."></textarea></div>
+    <button class="btn" id="sendMsgBtn">Send Message</button>
+  </div>`;
+}
+function renderCompose(){ return composePanel() + renderLog(false, 5); }
+
+function renderRoster(){
+  const rows = state.roster.map(r=>{
+    const role = r.role||'officer';
+    return `<tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.site||'—')}</td>
+      <td><select class="small" data-role-switch="${r.id}">
+        <option value="officer" ${role==='officer'?'selected':''}>Officer</option>
+        <option value="supervisor" ${role==='supervisor'?'selected':''}>Supervisor</option>
+      </select></td>
+      <td><button class="rm-btn" data-rm-roster="${r.id}">Remove</button></td>
+    </tr>`;
+  }).join('');
+  return `
+  <div class="panel">
+    <h4>Upload Roster</h4>
+    <div class="file-drop" id="fileDrop">Click to upload Excel (.xlsx/.csv) — columns: Name, Site, Role (optional)</div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+    <div class="helptext">For Word documents: open the file, copy the officer list, and paste it below (one person per line, format "Name, Site, Role"). Leave Role off, or write "Supervisor" for supervisors — everyone else defaults to Officer.</div>
+    <div class="field" style="margin-top:14px;"><label>Or Paste Names</label>
+      <textarea id="pasteRoster" placeholder="Kwame Mensah, ORF&#10;Ama Owusu, Logistics Base, Supervisor&#10;Yaw Boateng, Head Office"></textarea>
+    </div>
+    <button class="btn" id="pasteRosterBtn">Add From Text</button>
+  </div>
+  <div class="panel">
+    <h4>Current Roster</h4>
+    ${state.roster.length ? `<table><thead><tr><th>Name</th><th>Site</th><th>Role</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No one added yet.</div>'}
+    ${state.roster.length ? '<button class="btn secondary" style="margin-top:14px;" id="clearRosterBtn">Clear Entire Roster</button>' : ''}
+    <div class="helptext">Use the Role dropdown to promote anyone to Supervisor so they can send messages from the Supervisor Board.</div>
+  </div>`;
+}
+
+function renderFeedback(){
+  const items = [...state.feedback].sort((a,b)=>b.ts-a.ts);
+  return `<div class="panel"><h4>Feedback From Officers</h4>
+    ${items.length ? items.map(f=>`
+      <div class="card type-general">
+        <div class="card-top"><span class="card-tag">${escapeHtml(f.officerName)}${f.site? ' · '+escapeHtml(f.site):''}</span><span class="card-time">${fmtTime(f.ts)}</span></div>
+        <div class="card-body">${escapeHtml(f.text)}</div>
+      </div>`).join('') : '<div class="empty">No feedback received yet.</div>'}
+  </div>`;
+}
+
+function renderLog(standalone, limit){
+  const items = [...state.messages].sort((a,b)=>b.ts-a.ts).slice(0, limit||undefined);
+  const body = items.length ? items.map(m=>`
+    <div class="card type-${m.type}">
+      <div class="card-top"><span class="card-tag">${m.type} · ${escapeHtml(m.sender||'Ops Desk')}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
+      <div class="card-body">${escapeHtml(m.text)}</div>
+      <div class="card-audience">${audienceLabel(m.audience)}</div>
+    </div>`).join('') : '<div class="empty">No messages sent yet.</div>';
+  return standalone ? `<div class="panel"><h4>Full Message Log</h4>${body}</div>` : `<div class="panel"><h4>Recent Messages</h4>${body}</div>`;
+}
+
+function renderSettings(){
+  return `
+  <div class="panel"><h4>Master Passcode</h4>
+    <div class="field"><label>Change Passcode</label><input type="text" id="newPasscode" placeholder="New passcode"></div>
+    <button class="btn" id="savePasscodeBtn">Save Passcode</button>
+    <div class="helptext">Anyone with this passcode can send messages as the ops desk. Share it only with the master.</div>
+  </div>
+  <div class="panel"><h4>About This App</h4>
+    <div class="helptext">Data (roster, messages, feedback) is stored in your connected Firebase project and syncs live to everyone using this app — officers, supervisors, and the master all see the same live data, even across separate installed copies of the app.</div>
+  </div>`;
+}
+
+function audienceLabel(a){
+  if(a==='all') return 'To: All Officers';
+  if(a.startsWith('site:')) return 'To: Site — ' + a.slice(5);
+  if(a.startsWith('officer:')){
+    const off = state.roster.find(r=>r.id===a.slice(8));
+    return 'To: ' + (off ? off.name : 'Officer (removed)');
+  }
+  return '';
+}
+
+/* ---------------- officer / supervisor board ---------------- */
+function renderOfficer(){
+  const off = state.officer;
+  const isSup = (off.role||'officer') === 'supervisor';
+  const mine = state.messages.filter(m=>{
+    if(m.audience==='all') return true;
+    if(m.audience==='site:'+off.site) return true;
+    if(m.audience==='officer:'+off.id) return true;
+    return false;
+  }).sort((a,b)=>b.ts-a.ts);
+  const myFeedback = state.feedback.filter(f=>f.officerId===off.id).sort((a,b)=>b.ts-a.ts);
+  const teamFeedback = isSup ? state.feedback.filter(f=>f.site===off.site && f.officerId!==off.id).sort((a,b)=>b.ts-a.ts) : [];
+  state.composeSender = off.name + (isSup ? ' (Supervisor)' : '');
+
+  return `
+  <div class="topbar">
+    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${isSup?'Supervisor Board':'Duty Board'}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}</div></div></div>
+    <div class="who"><button class="exit-btn" data-go="landing">Exit</button></div>
+  </div>
+  ${isSup ? composePanel() : ''}
+  <div class="panel"><h4>Messages For You</h4>
+    ${mine.length ? mine.map(m=>`
+      <div class="card type-${m.type}">
+        <div class="card-top"><span class="card-tag">${m.type} · ${escapeHtml(m.sender||'Ops Desk')}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
+        <div class="card-body">${escapeHtml(m.text)}</div>
+      </div>`).join('') : '<div class="empty">No messages yet. Check back soon.</div>'}
+  </div>
+  ${isSup ? `<div class="panel"><h4>Feedback From Your Site</h4>
+    ${teamFeedback.length ? teamFeedback.map(f=>`
+      <div class="card type-general">
+        <div class="card-top"><span class="card-tag">${escapeHtml(f.officerName)}</span><span class="card-time">${fmtTime(f.ts)}</span></div>
+        <div class="card-body">${escapeHtml(f.text)}</div>
+      </div>`).join('') : '<div class="empty">No feedback from your site yet.</div>'}
+  </div>` : ''}
+  <div class="panel"><h4>Send Feedback To Ops Desk</h4>
+    <div class="field"><textarea id="feedbackText" placeholder="Report, question or update for the ops desk..."></textarea></div>
+    <button class="btn" id="sendFeedbackBtn">Send Feedback</button>
+  </div>
+  <div class="panel"><h4>Your Sent Feedback</h4>
+    ${myFeedback.length ? myFeedback.map(f=>`
+      <div class="card type-general">
+        <div class="card-top"><span class="card-tag">You</span><span class="card-time">${fmtTime(f.ts)}</span></div>
+        <div class="card-body">${escapeHtml(f.text)}</div>
+      </div>`).join('') : '<div class="empty">You have not sent any feedback yet.</div>'}
+  </div>`;
+}
+
+/* ---------------- event handlers ---------------- */
+function attachHandlers(){
+  document.querySelectorAll('[data-go]').forEach(el=>{
+    el.onclick = ()=>{
+      state.view = el.getAttribute('data-go');
+      const r = el.getAttribute('data-role');
+      if(r) state.pickRole = r;
+      render();
+    };
+  });
+
+  const gateSubmit = document.getElementById('passcodeSubmit');
+  if(gateSubmit){
+    const doSubmit = ()=>{
+      const val = document.getElementById('passcodeInput').value;
+      if(val === state.settings.passcode){
+        state.composeSender = 'Ops Desk';
+        state.view='master'; state.masterTab='compose'; render();
+      } else {
+        document.getElementById('gateError').textContent = 'Incorrect passcode.';
+      }
+    };
+    gateSubmit.onclick = doSubmit;
+    document.getElementById('passcodeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doSubmit(); });
+  }
+
+  const officerPickBtn = document.getElementById('officerPickSubmit');
+  if(officerPickBtn){
+    officerPickBtn.onclick = ()=>{
+      const id = document.getElementById('officerSelect').value;
+      if(!id){ document.getElementById('pickError').textContent = 'Please select your name.'; return; }
+      state.officer = state.roster.find(r=>r.id===id);
+      state.view='officer'; render();
+    };
+  }
+  const manualToggle = document.getElementById('manualToggle');
+  if(manualToggle){
+    manualToggle.onclick = ()=>{
+      const block = document.getElementById('manualBlock');
+      block.style.display = block.style.display==='none' ? 'block' : 'none';
+    };
+  }
+  const manualSubmit = document.getElementById('manualSubmit');
+  if(manualSubmit){
+    manualSubmit.onclick = async ()=>{
+      const name = document.getElementById('manualName').value.trim();
+      const site = document.getElementById('manualSite').value.trim();
+      if(!name){ document.getElementById('pickError').textContent = 'Please enter your name.'; return; }
+      let off = state.roster.find(r=>r.name.toLowerCase()===name.toLowerCase());
+      try{
+        if(!off){
+          const role = state.pickRole || 'officer';
+          const ref = await addDoc(collection(db,'roster'), {name, site, role});
+          off = {id:ref.id, name, site, role};
+        }
+        state.officer = off;
+        state.view='officer'; render();
+      }catch(e){ showToast('Could not join: '+e.message, true); }
+    };
+  }
+
+  document.querySelectorAll('.tab[data-tab]').forEach(el=>{
+    el.onclick = ()=>{ state.masterTab = el.getAttribute('data-tab'); render(); };
+  });
+
+  const sendMsgBtn = document.getElementById('sendMsgBtn');
+  if(sendMsgBtn){
+    sendMsgBtn.onclick = async ()=>{
+      const text = document.getElementById('msgText').value.trim();
+      if(!text){ showToast('Write a message first', true); return; }
+      const type = document.getElementById('msgType').value;
+      const audience = document.getElementById('msgAudience').value;
+      try{
+        await addDoc(collection(db,'messages'), {type, audience, text, ts:Date.now(), sender: state.composeSender || 'Ops Desk'});
+        showToast('Message sent');
+        document.getElementById('msgText').value='';
+      }catch(e){ showToast('Failed to send: '+e.message, true); }
+    };
+  }
+
+  const fileDrop = document.getElementById('fileDrop');
+  const fileInput = document.getElementById('fileInput');
+  if(fileDrop){
+    fileDrop.onclick = ()=> fileInput.click();
+    fileInput.onchange = async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      try{
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data);
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1});
+        let added = 0;
+        for(let idx=0; idx<rows.length; idx++){
+          const row = rows[idx];
+          if(!row || !row.length) continue;
+          const first = String(row[0]||'').trim();
+          if(idx===0 && /name/i.test(first)) continue;
+          if(!first) continue;
+          const name = first;
+          const site = row[1] ? String(row[1]).trim() : '';
+          const roleRaw = row[2] ? String(row[2]).trim().toLowerCase() : '';
+          const role = roleRaw.startsWith('sup') ? 'supervisor' : 'officer';
+          if(state.roster.some(r=>r.name.toLowerCase()===name.toLowerCase())) continue;
+          await addDoc(collection(db,'roster'), {name, site, role});
+          added++;
+        }
+        showToast(added + ' officer(s) added');
+      }catch(err){ showToast('Could not read file: '+err.message, true); }
+    };
+  }
+
+  const pasteBtn = document.getElementById('pasteRosterBtn');
+  if(pasteBtn){
+    pasteBtn.onclick = async ()=>{
+      const raw = document.getElementById('pasteRoster').value;
+      const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+      let added = 0;
+      try{
+        for(const line of lines){
+          const parts = line.split(',').map(p=>p.trim());
+          const name = parts[0];
+          const site = parts[1] || '';
+          const role = (parts[2]||'').toLowerCase().startsWith('sup') ? 'supervisor' : 'officer';
+          if(!name) continue;
+          if(state.roster.some(r=>r.name.toLowerCase()===name.toLowerCase())) continue;
+          await addDoc(collection(db,'roster'), {name, site, role});
+          added++;
+        }
+        showToast(added + ' officer(s) added');
+      }catch(e){ showToast('Failed to add: '+e.message, true); }
+    };
+  }
+
+  document.querySelectorAll('[data-rm-roster]').forEach(el=>{
+    el.onclick = async ()=>{
+      try{ await deleteDoc(doc(db,'roster', el.getAttribute('data-rm-roster'))); }
+      catch(e){ showToast('Could not remove: '+e.message, true); }
+    };
+  });
+  document.querySelectorAll('[data-role-switch]').forEach(el=>{
+    el.onchange = async ()=>{
+      const id = el.getAttribute('data-role-switch');
+      const r = state.roster.find(x=>x.id===id);
+      try{
+        await setDoc(doc(db,'roster', id), {name:r.name, site:r.site||'', role: el.value});
+        showToast(r.name + ' set as ' + (el.value==='supervisor'?'Supervisor':'Officer'));
+      }catch(e){ showToast('Could not update role: '+e.message, true); }
+    };
+  });
+  const clearRosterBtn = document.getElementById('clearRosterBtn');
+  if(clearRosterBtn){
+    clearRosterBtn.onclick = async ()=>{
+      if(!confirm('Remove all officers from the roster?')) return;
+      try{ for(const r of state.roster){ await deleteDoc(doc(db,'roster', r.id)); } }
+      catch(e){ showToast('Could not clear roster: '+e.message, true); }
+    };
+  }
+
+  const savePasscodeBtn = document.getElementById('savePasscodeBtn');
+  if(savePasscodeBtn){
+    savePasscodeBtn.onclick = async ()=>{
+      const val = document.getElementById('newPasscode').value.trim();
+      if(!val){ showToast('Enter a new passcode', true); return; }
+      try{
+        await setDoc(doc(db,'settings','main'), {passcode: val});
+        showToast('Passcode updated');
+        document.getElementById('newPasscode').value='';
+      }catch(e){ showToast('Could not save: '+e.message, true); }
+    };
+  }
+
+  const sendFeedbackBtn = document.getElementById('sendFeedbackBtn');
+  if(sendFeedbackBtn){
+    sendFeedbackBtn.onclick = async ()=>{
+      const text = document.getElementById('feedbackText').value.trim();
+      if(!text){ showToast('Write your feedback first', true); return; }
+      try{
+        await addDoc(collection(db,'feedback'), {officerId:state.officer.id, officerName:state.officer.name, site:state.officer.site||'', text, ts:Date.now()});
+        showToast('Feedback sent to ops desk');
+        document.getElementById('feedbackText').value='';
+      }catch(e){ showToast('Failed to send: '+e.message, true); }
+    };
+  }
+}
+
+/* ---------------- PWA install + service worker ---------------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+
+render();
+</script>
+</body>
+</html>
