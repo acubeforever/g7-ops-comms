@@ -339,6 +339,20 @@ onSnapshot(doc(db,'settings','main'), d=>{
 /* ---------------- render root ---------------- */
 function render(){
   const app = document.getElementById('app');
+
+  // Preserve in-progress form values + focus/cursor before wiping the DOM.
+  // Without this, a background Firestore update (e.g. a read-receipt write
+  // firing while a supervisor has a dropdown open or is mid-type) rebuilds
+  // the whole panel and silently resets every select/textarea/input.
+  const preserved = {};
+  app.querySelectorAll('select[id], textarea[id], input[id]').forEach(el=>{
+    preserved[el.id] = el.value;
+  });
+  const activeEl = document.activeElement;
+  const activeId = activeEl && app.contains(activeEl) ? activeEl.id : null;
+  const selStart = activeEl && 'selectionStart' in activeEl ? activeEl.selectionStart : null;
+  const selEnd = activeEl && 'selectionEnd' in activeEl ? activeEl.selectionEnd : null;
+
   if(state.view==='landing') app.innerHTML = renderLanding();
   else if(state.view==='masterGate') app.innerHTML = renderMasterGate();
   else if(state.view==='master') app.innerHTML = renderMaster();
@@ -346,6 +360,22 @@ function render(){
   else if(state.view==='officerAuthCreate') app.innerHTML = renderOfficerAuth('create');
   else if(state.view==='officerAuthEnter') app.innerHTML = renderOfficerAuth('enter');
   else if(state.view==='officer') app.innerHTML = renderOfficer();
+
+  // Restore values first, then focus/selection.
+  Object.keys(preserved).forEach(id=>{
+    const el = document.getElementById(id);
+    if(el && preserved[id] !== undefined) el.value = preserved[id];
+  });
+  if(activeId){
+    const el = document.getElementById(activeId);
+    if(el){
+      el.focus();
+      if(selStart!=null && selEnd!=null && 'setSelectionRange' in el){
+        try{ el.setSelectionRange(selStart, selEnd); }catch(e){}
+      }
+    }
+  }
+
   attachHandlers();
 }
 
