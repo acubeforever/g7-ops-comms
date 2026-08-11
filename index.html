@@ -48,7 +48,7 @@
   .gate{max-width:340px;margin:10vh auto 0;text-align:center;}
   .gate h2{font-family:var(--display);text-transform:uppercase;font-size:26px;margin-bottom:6px;}
   .gate p{color:var(--text-dim);font-size:13px;margin-bottom:22px;}
-  input[type=password],input[type=text],select,textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:13px 14px;min-height:48px;border-radius:7px;font-family:var(--body);font-size:16px;outline:none;}
+  input[type=password],input[type=text],input[type=date],input[type=time],select,textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:13px 14px;min-height:48px;border-radius:7px;font-family:var(--body);font-size:16px;outline:none;color-scheme:dark;}
   input:focus,select:focus,textarea:focus{border-color:var(--amber);}
   select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b96a3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:18px;padding-right:38px;}
   .btn{background:var(--amber);color:#1a1408;border:none;font-family:var(--display);font-weight:600;font-size:16px;text-transform:uppercase;letter-spacing:.04em;padding:13px 22px;min-height:48px;border-radius:7px;cursor:pointer;transition:transform .08s, background .15s;}
@@ -161,12 +161,133 @@ async function hashCode(text){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
+/* ---------------- notifications (foreground) ---------------- */
+function notifSupported(){ return 'Notification' in window; }
+function notifPermission(){ return notifSupported() ? Notification.permission : 'unsupported'; }
+async function requestNotifPermission(){
+  if(!notifSupported()){ showToast('Notifications are not supported on this browser', true); return; }
+  try{
+    const perm = await Notification.requestPermission();
+    localStorage.setItem('g7_notif_asked','1');
+    if(perm==='granted') showToast('Notifications enabled');
+    else showToast('Notifications not enabled', true);
+    render();
+  }catch(e){ showToast('Could not enable notifications: '+e.message, true); }
+}
+function playBeep(urgent){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = urgent ? 880 : 660;
+    gain.gain.value = 0.08;
+    osc.start();
+    setTimeout(()=>{ osc.stop(); ctx.close(); }, urgent ? 260 : 140);
+    if(urgent){ setTimeout(()=>playBeep(false), 320); }
+  }catch(e){}
+}
+function messageAppliesToOfficer(m, off){
+  if(!off) return false;
+  if(m.audience==='all') return true;
+  if(m.audience==='site:'+off.site) return true;
+  if(m.audience==='shift:'+off.shift) return true;
+  if(m.audience==='officer:'+off.id) return true;
+  return false;
+}
+function notifyNewMessage(m){
+  // Only alert if this message is relevant to whoever currently has the app open.
+  let relevant = false, title = 'New message';
+  if(state.view==='officer' && state.officer && messageAppliesToOfficer(m, state.officer)){
+    relevant = true; title = m.type==='urgent' ? 'Urgent — Ops Desk' : 'New message — ' + (m.sender||'Ops Desk');
+  } else if(state.view==='master'){
+    relevant = true; title = 'New message sent — ' + (m.sender||'Ops Desk');
+  }
+  if(!relevant) return;
+  showToast((m.type==='urgent'?'⚠ Urgent: ':'New message: ') + m.text.slice(0,60));
+  playBeep(m.type==='urgent');
+  if(notifSupported() && Notification.permission==='granted' && document.hidden){
+    try{ new Notification(title, {body:m.text.slice(0,120), tag:'g7-msg-'+m.id}); }catch(e){}
+  }
+}
+function notifyNewFeedback(f){
+  if(state.view!=='master') return;
+  showToast('New feedback from ' + f.officerName);
+  playBeep(false);
+  if(notifSupported() && Notification.permission==='granted' && document.hidden){
+    try{ new Notification('New feedback — '+f.officerName, {body:f.text.slice(0,120), tag:'g7-fb-'+f.id}); }catch(e){}
+  }
+}
+
+/* ---------------- message delivery / read tracking ---------------- */
+function officersForAudience(audience){
+  if(audience==='all') return state.roster;
+  if(audience.startsWith('site:')) return state.roster.filter(r=>r.site===audience.slice(5));
+  if(audience.startsWith('shift:')) return state.roster.filter(r=>r.shift===audience.slice(6));
+  if(audience.startsWith('officer:')) return state.roster.filter(r=>r.id===audience.slice(8));
+  return [];
+}
+function messageStatus(m){
+  const recipients = officersForAudience(m.audience||'all');
+  const total = recipients.length;
+  const deliveredBy = m.deliveredBy || {};
+  const readBy = m.readBy || {};
+  const delivered = recipients.filter(r=>deliveredBy[r.id]).length;
+  const read = recipients.filter(r=>readBy[r.id]).length;
+  return {total, delivered, read};
+}
+function statusTicksHtml(m){
+  const s = messageStatus(m);
+  if(s.total===0) return '';
+  let label, color;
+  if(s.read>0 && s.read===s.total){ label = 'Read ✓✓ ('+s.read+'/'+s.total+')'; color='var(--blue)'; }
+  else if(s.read>0){ label = 'Read ✓✓ ('+s.read+'/'+s.total+')'; color='var(--text-dim)'; }
+  else if(s.delivered>0){ label = 'Delivered ✓✓ ('+s.delivered+'/'+s.total+')'; color='var(--text-dim)'; }
+  else { label = 'Sent ✓'; color='var(--text-dim)'; }
+  return `<div class="card-audience" style="color:${color};margin-top:4px;">${label}</div>`;
+}
+async function markMessageSeen(m, off){
+  if(!off) return;
+  try{
+    const patch = {};
+    if(!(m.deliveredBy && m.deliveredBy[off.id])) patch['deliveredBy.'+off.id] = Date.now();
+    if(Object.keys(patch).length){ await setDoc(doc(db,'messages', m.id), patch, {merge:true}); }
+  }catch(e){}
+  // Mark read shortly after — the officer's board displays the full text directly,
+  // so having it open and rendered counts as having read it.
+  setTimeout(async ()=>{
+    if(m.readBy && m.readBy[off.id]) return;
+    try{ await setDoc(doc(db,'messages', m.id), {['readBy.'+off.id]: Date.now()}, {merge:true}); }
+    catch(e){}
+  }, 1800);
+}
+
+/* ---------------- shift assignment helpers ---------------- */
+function shiftOverlaps(aStart, aEnd, bStart, bEnd){
+  return aStart < bEnd && bStart < aEnd;
+}
+function findShiftConflict(officerId, date, start, end, excludeId){
+  return state.shifts.find(s=>{
+    if(s.id===excludeId) return false;
+    if(s.officerId!==officerId || s.date!==date) return false;
+    return shiftOverlaps(start, end, s.start, s.end);
+  });
+}
+function fmtShiftRange(s){
+  return s.date + ' · ' + s.start + '–' + s.end;
+}
+
 /* ---------------- state ---------------- */
 let state = {
   view: 'landing', masterTab: 'compose', pickRole: 'officer',
   officer: null, pendingOfficer: null, composeSender: 'Ops Desk',
-  roster: [], messages: [], feedback: [], settings: {passcode:'2580'},
+  roster: [], messages: [], feedback: [], shifts: [], settings: {passcode:'2580'},
+  showHistory: false,
 };
+let messagesLoaded = false; // guards against notifying for the initial historical batch
+let feedbackLoaded = false;
+const seenMessageIds = new Set();
+const seenFeedbackIds = new Set();
 
 /* ---------------- live Firestore listeners ---------------- */
 onSnapshot(collection(db, 'roster'), snap=>{
@@ -176,13 +297,38 @@ onSnapshot(collection(db, 'roster'), snap=>{
 
 onSnapshot(query(collection(db,'messages'), orderBy('ts','desc')), snap=>{
   state.messages = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  if(messagesLoaded){
+    snap.docChanges().forEach(ch=>{
+      if(ch.type==='added'){
+        const m = {id:ch.doc.id, ...ch.doc.data()};
+        if(!seenMessageIds.has(m.id)) notifyNewMessage(m);
+      }
+    });
+  }
+  snap.docs.forEach(d=>seenMessageIds.add(d.id));
+  messagesLoaded = true;
   render();
 }, err=>showToast('Message sync error: '+err.message, true));
 
 onSnapshot(query(collection(db,'feedback'), orderBy('ts','desc')), snap=>{
   state.feedback = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  if(feedbackLoaded){
+    snap.docChanges().forEach(ch=>{
+      if(ch.type==='added'){
+        const f = {id:ch.doc.id, ...ch.doc.data()};
+        if(!seenFeedbackIds.has(f.id)) notifyNewFeedback(f);
+      }
+    });
+  }
+  snap.docs.forEach(d=>seenFeedbackIds.add(d.id));
+  feedbackLoaded = true;
   render();
 }, err=>showToast('Feedback sync error: '+err.message, true));
+
+onSnapshot(query(collection(db,'shifts'), orderBy('date','asc')), snap=>{
+  state.shifts = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  render();
+}, err=>showToast('Shift sync error: '+err.message, true));
 
 onSnapshot(doc(db,'settings','main'), d=>{
   if(d.exists()) state.settings = d.data();
@@ -310,15 +456,17 @@ function renderMaster(){
   </div>
   <div class="tabs">
     <button class="tab ${tab==='compose'?'active':''}" data-tab="compose">Compose</button>
+    <button class="tab ${tab==='shifts'?'active':''}" data-tab="shifts">Shifts (${state.shifts.length})</button>
     <button class="tab ${tab==='roster'?'active':''}" data-tab="roster">Roster (${state.roster.length})</button>
     <button class="tab ${tab==='feedback'?'active':''}" data-tab="feedback">Feedback (${state.feedback.length})</button>
     <button class="tab ${tab==='log'?'active':''}" data-tab="log">Message Log</button>
     <button class="tab ${tab==='settings'?'active':''}" data-tab="settings">Settings</button>
   </div>
-  <div id="tabContent">${renderMasterTab(tab)}</div>`;
+  <div id="tabContent">${notifBannerHtml()}${renderMasterTab(tab)}</div>`;
 }
 function renderMasterTab(tab){
   if(tab==='compose') return renderCompose();
+  if(tab==='shifts') return renderShifts();
   if(tab==='roster') return renderRoster();
   if(tab==='feedback') return renderFeedback();
   if(tab==='log') return renderLog(true);
@@ -432,9 +580,46 @@ function renderLog(standalone, limit){
       <div class="card-top"><span class="card-tag">${m.type} · ${escapeHtml(m.sender||'Ops Desk')}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
       <div class="card-body">${escapeHtml(m.text)}</div>
       <div class="card-audience">${audienceLabel(m.audience)}</div>
+      ${statusTicksHtml(m)}
     </div>`).join('') : '<div class="empty">No messages sent yet.</div>';
   return standalone ? `<div class="panel"><h4>Full Message Log</h4>${body}</div>` : `<div class="panel"><h4>Recent Messages</h4>${body}</div>`;
 }
+
+/* ---------------- shift assignment ---------------- */
+function shiftAssignPanel(lockedSite){
+  const pool = lockedSite ? state.roster.filter(r=>r.site===lockedSite) : state.roster;
+  const options = pool.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}${r.site && !lockedSite? ' — '+escapeHtml(r.site):''}</option>`).join('');
+  return `
+  <div class="panel">
+    <h4>Assign Shift${lockedSite? ' — '+escapeHtml(lockedSite):''}</h4>
+    ${pool.length ? `
+    <div class="field"><label>Officer</label><select id="shiftOfficer">${options}</select></div>
+    <div class="row2">
+      <div class="field"><label>Date</label><input type="date" id="shiftDate"></div>
+      <div class="field"><label>&nbsp;</label></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Start Time</label><input type="time" id="shiftStart"></div>
+      <div class="field"><label>End Time</label><input type="time" id="shiftEnd"></div>
+    </div>
+    <div class="field"><label>Notes (post, role for this shift, etc.)</label><textarea id="shiftNotes" placeholder="e.g. Gate control, ORF main entrance"></textarea></div>
+    <button class="btn" id="assignShiftBtn" data-locked-site="${escapeAttr(lockedSite||'')}">Assign Shift</button>
+    ` : '<div class="empty">No one on the roster yet to assign.</div>'}
+  </div>`;
+}
+function shiftsListPanel(lockedSite){
+  const list = (lockedSite ? state.shifts.filter(s=>s.site===lockedSite) : state.shifts)
+    .slice().sort((a,b)=>b.date.localeCompare(a.date)||b.start.localeCompare(a.start));
+  return `<div class="panel"><h4>${lockedSite? 'Your Team\u2019s Shifts' : 'All Assigned Shifts'} (${list.length})</h4>
+    ${list.length ? list.map(s=>`
+      <div class="card type-shift">
+        <div class="card-top"><span class="card-tag">${escapeHtml(s.officerName)}${s.site? ' · '+escapeHtml(s.site):''}</span><span class="card-time">${fmtShiftRange(s)}</span></div>
+        <div class="card-body">${s.notes ? escapeHtml(s.notes) : 'Shift assigned'}</div>
+        <div class="card-audience" style="color:${s.acknowledgedAt?'var(--green)':'var(--amber)'};">${s.acknowledgedAt ? 'Acknowledged ✓' : 'Awaiting acknowledgement'} · Assigned by ${escapeHtml(s.assignedBy||'—')}</div>
+      </div>`).join('') : '<div class="empty">No shifts assigned yet.</div>'}
+  </div>`;
+}
+function renderShifts(){ return shiftAssignPanel(null) + shiftsListPanel(null); }
 
 function renderSettings(){
   return `
@@ -460,33 +645,65 @@ function audienceLabel(a){
 }
 
 /* ---------------- officer / supervisor board ---------------- */
+function notifBannerHtml(){
+  if(!notifSupported() || notifPermission()!=='default') return '';
+  if(localStorage.getItem('g7_notif_dismissed')==='1') return '';
+  return `<div class="panel" id="notifBanner" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+    <div style="font-size:12.5px;">🔔 Turn on notifications to hear when a new message arrives.</div>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button class="btn" style="padding:8px 12px;" id="enableNotifBtn">Enable</button>
+      <button class="btn secondary" style="padding:8px 12px;" id="dismissNotifBtn">Not now</button>
+    </div>
+  </div>`;
+}
+function myShiftsPanel(off){
+  const mine = state.shifts.filter(s=>s.officerId===off.id).sort((a,b)=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start));
+  return `<div class="panel"><h4>Your Shifts</h4>
+    ${mine.length ? mine.map(s=>`
+      <div class="card type-shift">
+        <div class="card-top"><span class="card-tag">${escapeHtml(s.site||off.site||'')}</span><span class="card-time">${fmtShiftRange(s)}</span></div>
+        <div class="card-body">${s.notes ? escapeHtml(s.notes) : 'Assigned shift'}</div>
+        <div class="card-audience" style="color:${s.acknowledgedAt?'var(--green)':'var(--amber)'};">
+          ${s.acknowledgedAt ? 'Acknowledged ✓' : 'Not yet acknowledged'}
+        </div>
+        ${!s.acknowledgedAt ? `<button class="btn" style="margin-top:8px;padding:8px 12px;" data-ack-shift="${s.id}">Acknowledge</button>` : ''}
+      </div>`).join('') : '<div class="empty">No shifts assigned yet.</div>'}
+  </div>`;
+}
 function renderOfficer(){
   const off = state.officer;
   const isSup = (off.role||'officer') === 'supervisor';
-  const mine = state.messages.filter(m=>{
-    if(m.audience==='all') return true;
-    if(m.audience==='site:'+off.site) return true;
-    if(m.audience==='shift:'+off.shift) return true;
-    if(m.audience==='officer:'+off.id) return true;
-    return false;
-  }).sort((a,b)=>b.ts-a.ts);
+  const mine = state.messages.filter(m=>messageAppliesToOfficer(m, off)).sort((a,b)=>b.ts-a.ts);
+  mine.forEach(m=>markMessageSeen(m, off));
+  const isRead = m => !!(m.readBy && m.readBy[off.id]);
+  const active = mine.filter(m=>m.type==='urgent' || !isRead(m));
+  const history = mine.filter(m=>m.type!=='urgent' && isRead(m));
   const myFeedback = state.feedback.filter(f=>f.officerId===off.id).sort((a,b)=>b.ts-a.ts);
   const teamFeedback = isSup ? state.feedback.filter(f=>f.site===off.site && f.officerId!==off.id).sort((a,b)=>b.ts-a.ts) : [];
   state.composeSender = off.name + (isSup ? ' (Supervisor)' : '');
+
+  const msgCard = m => `
+      <div class="card type-${m.type}">
+        <div class="card-top"><span class="card-tag">${m.type} · ${escapeHtml(m.sender||'Ops Desk')}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
+        <div class="card-body">${escapeHtml(m.text)}</div>
+      </div>`;
 
   return `
   <div class="topbar">
     <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${isSup?'Supervisor Board':'Duty Board'}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}${off.shift? ' · '+escapeHtml(off.shift)+' Shift':''}</div></div></div>
     <div class="who"><button class="exit-btn" data-go="landing">Exit</button></div>
   </div>
+  ${notifBannerHtml()}
   ${isSup ? composePanel() : ''}
-  <div class="panel"><h4>Messages For You</h4>
-    ${mine.length ? mine.map(m=>`
-      <div class="card type-${m.type}">
-        <div class="card-top"><span class="card-tag">${m.type} · ${escapeHtml(m.sender||'Ops Desk')}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
-        <div class="card-body">${escapeHtml(m.text)}</div>
-      </div>`).join('') : '<div class="empty">No messages yet. Check back soon.</div>'}
+  ${isSup ? shiftAssignPanel(off.site) : ''}
+  ${myShiftsPanel(off)}
+  <div class="panel"><h4>Messages For You${active.length?' ('+active.length+')':''}</h4>
+    ${active.length ? active.map(msgCard).join('') : '<div class="empty">You\'re all caught up. No new messages.</div>'}
   </div>
+  ${history.length ? `<div class="panel">
+    <h4 style="cursor:pointer;" id="historyToggle">Message History (${history.length}) ${state.showHistory?'▲':'▼'}</h4>
+    ${state.showHistory ? history.map(msgCard).join('') : ''}
+  </div>` : ''}
   ${isSup ? `<div class="panel"><h4>Feedback From Your Site</h4>
     ${teamFeedback.length ? teamFeedback.map(f=>`
       <div class="card type-general">
@@ -623,7 +840,7 @@ function attachHandlers(){
       const type = document.getElementById('msgType').value;
       const audience = document.getElementById('msgAudience').value;
       try{
-        await addDoc(collection(db,'messages'), {type, audience, text, ts:Date.now(), sender: state.composeSender || 'Ops Desk'});
+        await addDoc(collection(db,'messages'), {type, audience, text, ts:Date.now(), sender: state.composeSender || 'Ops Desk', deliveredBy:{}, readBy:{}});
         showToast('Message sent');
         document.getElementById('msgText').value='';
       }catch(e){ showToast('Failed to send: '+e.message, true); }
@@ -804,6 +1021,56 @@ function attachHandlers(){
       }catch(e){ showToast('Failed to send: '+e.message, true); }
     };
   }
+
+  const historyToggle = document.getElementById('historyToggle');
+  if(historyToggle){
+    historyToggle.onclick = ()=>{ state.showHistory = !state.showHistory; render(); };
+  }
+
+  const enableNotifBtn = document.getElementById('enableNotifBtn');
+  if(enableNotifBtn) enableNotifBtn.onclick = requestNotifPermission;
+  const dismissNotifBtn = document.getElementById('dismissNotifBtn');
+  if(dismissNotifBtn) dismissNotifBtn.onclick = ()=>{ localStorage.setItem('g7_notif_dismissed','1'); render(); };
+
+  const assignShiftBtn = document.getElementById('assignShiftBtn');
+  if(assignShiftBtn){
+    assignShiftBtn.onclick = async ()=>{
+      const officerId = document.getElementById('shiftOfficer').value;
+      const date = document.getElementById('shiftDate').value;
+      const start = document.getElementById('shiftStart').value;
+      const end = document.getElementById('shiftEnd').value;
+      const notes = document.getElementById('shiftNotes').value.trim();
+      if(!officerId){ showToast('Choose an officer', true); return; }
+      if(!date || !start || !end){ showToast('Set date, start and end time', true); return; }
+      if(end <= start){ showToast('End time must be after start time', true); return; }
+      const off = state.roster.find(r=>r.id===officerId);
+      const conflict = findShiftConflict(officerId, date, start, end);
+      if(conflict && !confirm(`${off.name} already has a shift ${fmtShiftRange(conflict)}. Assign this one anyway?`)) return;
+      try{
+        await addDoc(collection(db,'shifts'), {
+          officerId, officerName: off.name, site: off.site||'', date, start, end, notes,
+          assignedBy: state.composeSender || 'Ops Desk', ts: Date.now(), acknowledgedAt: null
+        });
+        await addDoc(collection(db,'messages'), {
+          type:'shift', audience:'officer:'+officerId,
+          text: `Shift assigned: ${date}, ${start}–${end}${off.site? ' at '+off.site:''}.${notes? ' '+notes:''}`,
+          ts:Date.now(), sender: state.composeSender || 'Ops Desk', deliveredBy:{}, readBy:{}
+        });
+        showToast('Shift assigned to ' + off.name);
+        document.getElementById('shiftDate').value='';
+        document.getElementById('shiftStart').value='';
+        document.getElementById('shiftEnd').value='';
+        document.getElementById('shiftNotes').value='';
+      }catch(e){ showToast('Could not assign shift: '+e.message, true); }
+    };
+  }
+  document.querySelectorAll('[data-ack-shift]').forEach(el=>{
+    el.onclick = async ()=>{
+      const id = el.getAttribute('data-ack-shift');
+      try{ await setDoc(doc(db,'shifts', id), {acknowledgedAt: Date.now()}, {merge:true}); showToast('Shift acknowledged'); }
+      catch(e){ showToast('Could not acknowledge: '+e.message, true); }
+    };
+  });
 }
 
 /* ---------------- PWA install + service worker ---------------- */
