@@ -288,6 +288,13 @@ let messagesLoaded = false; // guards against notifying for the initial historic
 let feedbackLoaded = false;
 const seenMessageIds = new Set();
 const seenFeedbackIds = new Set();
+// Guards markMessageSeen from firing repeatedly for the same message+officer.
+// renderOfficer() runs on every render (including ones triggered by markMessageSeen's
+// own Firestore writes), so without this it becomes a write -> onSnapshot -> render ->
+// write loop that keeps tearing down and rebuilding the DOM, breaking dropdowns/buttons
+// mid-interaction. Once we've attempted delivered+read for a given message/officer pair,
+// we never call it again for that pair.
+const markSeenAttempted = new Set();
 
 /* ---------------- live Firestore listeners ---------------- */
 onSnapshot(collection(db, 'roster'), snap=>{
@@ -704,7 +711,12 @@ function renderOfficer(){
   const off = state.officer;
   const isSup = (off.role||'officer') === 'supervisor';
   const mine = state.messages.filter(m=>messageAppliesToOfficer(m, off)).sort((a,b)=>b.ts-a.ts);
-  mine.forEach(m=>markMessageSeen(m, off));
+  mine.forEach(m=>{
+    const seenKey = m.id + ':' + off.id;
+    if(markSeenAttempted.has(seenKey)) return;
+    markSeenAttempted.add(seenKey);
+    markMessageSeen(m, off);
+  });
   const isRead = m => !!(m.readBy && m.readBy[off.id]);
   const active = mine.filter(m=>m.type==='urgent' || !isRead(m));
   const history = mine.filter(m=>m.type!=='urgent' && isRead(m));
