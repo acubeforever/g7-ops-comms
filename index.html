@@ -397,6 +397,7 @@ function renderLanding(){
       <div class="role-card" data-go="masterGate"><div class="tag">Master</div><h3>Ops Desk</h3><p>Send messages, manage the roster, read feedback from officers.</p></div>
       <div class="role-card" data-go="officerPick" data-role="supervisor"><div class="tag">Supervisor</div><h3>Supervisor Board</h3><p>Send messages to your team and view messages and feedback.</p></div>
       <div class="role-card" data-go="officerPick" data-role="officer"><div class="tag">Officer</div><h3>Duty Board</h3><p>Read your messages and send feedback to the ops desk.</p></div>
+      <div class="role-card" data-go="officerPick" data-role="coordinator"><div class="tag">Coordinator</div><h3>Coordinator Board</h3><p>Send messages to officers and supervisors.</p></div>
     </div>
     <p style="margin-top:28px;font-size:12.5px;">First time setting this up? Start with <strong style="color:var(--amber);">Ops Desk</strong> to add your team and change the passcode.</p>
   </div>`;
@@ -419,7 +420,7 @@ function renderMasterGate(){
 /* ---------------- officer/supervisor pick ---------------- */
 function renderOfficerPick(){
   const role = state.pickRole || 'officer';
-  const boardLabel = role==='supervisor' ? 'Supervisor Board' : 'Duty Board';
+  const boardLabel = role==='supervisor' ? 'Supervisor Board' : role==='coordinator' ? 'Coordinator Board' : 'Duty Board';
   const filtered = state.roster.filter(r => (r.role||'officer') === role);
   const options = filtered.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}${r.site? ' — '+escapeHtml(r.site):''}</option>`).join('');
   return `
@@ -571,6 +572,7 @@ function renderRoster(){
       <td><select class="small" data-role-switch="${r.id}">
         <option value="officer" ${role==='officer'?'selected':''}>Officer</option>
         <option value="supervisor" ${role==='supervisor'?'selected':''}>Supervisor</option>
+        <option value="coordinator" ${role==='coordinator'?'selected':''}>Coordinator</option>
       </select></td>
       <td>
         ${hasCode
@@ -595,7 +597,7 @@ function renderRoster(){
     <h4>Current Roster</h4>
     ${state.roster.length ? `<table><thead><tr><th>Name</th><th>Site</th><th>Shift</th><th>Role</th><th>Passcode</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No one added yet.</div>'}
     ${state.roster.length ? '<button class="btn secondary" style="margin-top:14px;" id="clearRosterBtn">Clear Entire Roster</button>' : ''}
-    <div class="helptext">Use the Role dropdown to promote anyone to Supervisor. Each person sets their own passcode the first time they open their board — use Reset if someone forgets theirs.</div>
+    <div class="helptext">Use the Role dropdown to promote anyone to Supervisor, or set them as Coordinator (can send messages to officers and supervisors, but can't see internal ops/supervisor traffic). Each person sets their own passcode the first time they open their board — use Reset if someone forgets theirs.</div>
   </div>`;
 }
 
@@ -709,7 +711,34 @@ function myShiftsPanel(off){
 }
 function renderOfficer(){
   const off = state.officer;
-  const isSup = (off.role||'officer') === 'supervisor';
+  const role = off.role || 'officer';
+  const isSup = role === 'supervisor';
+  const isCoord = role === 'coordinator';
+  const boardLabel = isSup ? 'Supervisor Board' : isCoord ? 'Coordinator Board' : 'Duty Board';
+
+  // Coordinators can SEND to officers/supervisors but must never read the shared
+  // ops/supervisor message feed or site feedback — so we don't build an inbox for
+  // them at all, and skip messageAppliesToOfficer/markMessageSeen entirely.
+  if(isCoord){
+    state.composeSender = off.name + ' (Coordinator)';
+    const sentByMe = state.messages.filter(m=>m.senderId===off.id).sort((a,b)=>b.ts-a.ts);
+    const sentCard = m => `
+      <div class="card type-${m.type}">
+        <div class="card-top"><span class="card-tag">${m.type} · ${audienceLabel(m.audience)}</span><span class="card-time">${fmtTime(m.ts)}</span></div>
+        <div class="card-body">${escapeHtml(m.text)}</div>
+        ${statusTicksHtml(m)}
+      </div>`;
+    return `
+    <div class="topbar">
+      <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${boardLabel}</div><div class="brand-sub">${escapeHtml(off.name)}</div></div></div>
+      <div class="who"><button class="exit-btn" data-go="landing">Exit</button></div>
+    </div>
+    ${composePanel()}
+    <div class="panel"><h4>Messages You've Sent${sentByMe.length?' ('+sentByMe.length+')':''}</h4>
+      ${sentByMe.length ? sentByMe.map(sentCard).join('') : '<div class="empty">You haven\'t sent any messages yet.</div>'}
+    </div>`;
+  }
+
   const mine = state.messages.filter(m=>messageAppliesToOfficer(m, off)).sort((a,b)=>b.ts-a.ts);
   mine.forEach(m=>{
     const seenKey = m.id + ':' + off.id;
@@ -732,7 +761,7 @@ function renderOfficer(){
 
   return `
   <div class="topbar">
-    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${isSup?'Supervisor Board':'Duty Board'}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}${off.shift? ' · '+escapeHtml(off.shift)+' Shift':''}</div></div></div>
+    <div class="brand"><div class="brand-dot"></div><div><div class="brand-text">${boardLabel}</div><div class="brand-sub">${escapeHtml(off.name)}${off.site? ' · '+escapeHtml(off.site):''}${off.shift? ' · '+escapeHtml(off.shift)+' Shift':''}</div></div></div>
     <div class="who"><button class="exit-btn" data-go="landing">Exit</button></div>
   </div>
   ${notifBannerHtml()}
@@ -882,7 +911,7 @@ function attachHandlers(){
       const type = document.getElementById('msgType').value;
       const audience = document.getElementById('msgAudience').value;
       try{
-        await addDoc(collection(db,'messages'), {type, audience, text, ts:Date.now(), sender: state.composeSender || 'Ops Desk', deliveredBy:{}, readBy:{}});
+        await addDoc(collection(db,'messages'), {type, audience, text, ts:Date.now(), sender: state.composeSender || 'Ops Desk', senderId: (state.officer && state.officer.id) || null, deliveredBy:{}, readBy:{}});
         showToast('Message sent');
         document.getElementById('msgText').value='';
       }catch(e){ showToast('Failed to send: '+e.message, true); }
@@ -956,7 +985,7 @@ function attachHandlers(){
           const name = first;
           const site = row[1] ? String(row[1]).trim() : '';
           const roleRaw = row[2] ? String(row[2]).trim().toLowerCase() : '';
-          const role = roleRaw.startsWith('sup') ? 'supervisor' : 'officer';
+          const role = roleRaw.startsWith('sup') ? 'supervisor' : roleRaw.startsWith('coord') ? 'coordinator' : 'officer';
           const shiftRaw = row[3] ? String(row[3]).trim().toLowerCase() : '';
           const shift = shiftRaw.startsWith('morn') ? 'Morning' : shiftRaw.startsWith('after') ? 'Afternoon' : shiftRaw.startsWith('even') ? 'Evening' : '';
           if(state.roster.some(r=>r.name.toLowerCase()===name.toLowerCase())) continue;
@@ -979,7 +1008,8 @@ function attachHandlers(){
           const parts = line.split(',').map(p=>p.trim());
           const name = parts[0];
           const site = parts[1] || '';
-          const role = (parts[2]||'').toLowerCase().startsWith('sup') ? 'supervisor' : 'officer';
+          const roleRaw2 = (parts[2]||'').toLowerCase();
+          const role = roleRaw2.startsWith('sup') ? 'supervisor' : roleRaw2.startsWith('coord') ? 'coordinator' : 'officer';
           const shiftRaw = (parts[3]||'').toLowerCase();
           const shift = shiftRaw.startsWith('morn') ? 'Morning' : shiftRaw.startsWith('after') ? 'Afternoon' : shiftRaw.startsWith('even') ? 'Evening' : '';
           if(!name) continue;
